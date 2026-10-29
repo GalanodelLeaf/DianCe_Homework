@@ -1,0 +1,5 @@
+.vscode/
+build/
+managed_components/
+unity-app/
+*.lock
