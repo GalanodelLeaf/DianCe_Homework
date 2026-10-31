@@ -30,6 +30,7 @@
 #include "esp_es8311_port.h"
 #include "esp_pcf85063_port.h"
 #include "esp_qmi8658_port.h"
+#include "esp_qmc5883_port.h"
 #include "esp_sdcard_port.h"
 #include "esp_wifi_port.h"
 #include "esp_3inch5_lcd_port.h"
@@ -97,6 +98,7 @@ extern "C" void app_main(void)
     // esp_es8311_port_init(i2c_bus_handle);
     // esp_qmi8658_port_init(i2c_bus_handle);
     esp_pcf85063_port_init(i2c_bus_handle);
+    esp_qmc5883_port_init(i2c_bus_handle);
     esp_sdcard_port_init();
     // esp_camera_port_init(I2C_PORT_NUM);
     // esp_wifi_port_init("WSTEST", "waveshare0755");
@@ -121,6 +123,7 @@ extern "C" void app_main(void)
     struct nema_rmc_data rmc;
     while(1)
     {
+        esp_qmc5883_port_output();
         int len = neo_port_listen();
         if (len > 0)
         {

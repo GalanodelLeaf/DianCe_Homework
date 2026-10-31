@@ -1,2 +1,3 @@
-idf_component_register(SRCS "magni.c"
-                       INCLUDE_DIRS "include")
+idf_component_register(SRCS "magni.cpp"
+                       INCLUDE_DIRS "include"
+                       REQUIRES sensorlib)
