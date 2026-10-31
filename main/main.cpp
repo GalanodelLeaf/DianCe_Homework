@@ -114,18 +114,7 @@ extern "C" void app_main(void)
         // lv_demo_music();
         // lv_demo_widgets();
         lvgl_ui_init();
-        // system_tile_init(lv_scr_act());
         lvgl_port_unlock();
-    }
-
-    struct nema_rmc_data rmc;
-    while(1)
-    {
-        int len = neo_port_listen();
-        if (len > 0)
-        {
-            neo_decode(len, &rmc);
-        }
     }
 }
 
