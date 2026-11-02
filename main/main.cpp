@@ -71,7 +71,7 @@ lv_display_t *lvgl_disp = NULL;
 lv_indev_t *lvgl_touch_indev = NULL;
 
 bool touch_test_done = false;
-// sdmmc_card_t *card = NULL;
+sdmmc_card_t *card = NULL;
 
 void i2c_bus_init(void);
 void io_expander_init(void);
@@ -94,12 +94,9 @@ extern "C" void app_main(void)
     esp_3inch5_touch_port_init(&touch_handle, i2c_bus_handle, EXAMPLE_LCD_H_RES, EXAMPLE_LCD_V_RES, EXAMPLE_DISPLAY_ROTATION);
     esp_axp2101_port_init(i2c_bus_handle);
     vTaskDelay(pdMS_TO_TICKS(100));
-    // esp_es8311_port_init(i2c_bus_handle);
-    // esp_qmi8658_port_init(i2c_bus_handle);
+
     esp_pcf85063_port_init(i2c_bus_handle);
     esp_sdcard_port_init();
-    // esp_camera_port_init(I2C_PORT_NUM);
-    // esp_wifi_port_init("WSTEST", "waveshare0755");
 
     esp_3inch5_brightness_port_init();
     esp_3inch5_brightness_port_set(50);
