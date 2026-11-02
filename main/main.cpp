@@ -72,7 +72,7 @@ lv_display_t *lvgl_disp = NULL;
 lv_indev_t *lvgl_touch_indev = NULL;
 
 bool touch_test_done = false;
-sdmmc_card_t *card = NULL;
+// sdmmc_card_t *card = NULL;
 
 void i2c_bus_init(void);
 void io_expander_init(void);
@@ -97,15 +97,16 @@ extern "C" void app_main(void)
     vTaskDelay(pdMS_TO_TICKS(100));
 
     esp_pcf85063_port_init(i2c_bus_handle);
-    esp_qmc5883_port_init(i2c_bus_handle);
     esp_sdcard_port_init();
 
     esp_3inch5_brightness_port_init();
     esp_3inch5_brightness_port_set(50);
     lv_port_init();
 
-    // 初始化gps模块，测试
+    // 初始化定位模块
     neo_port_init();
+    // 初始化磁力计模块
+    esp_qmc5883_port_init(i2c_bus_handle);
     
     if (lvgl_port_lock(0))
     {

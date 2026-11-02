@@ -11,7 +11,7 @@
 #include "esp_psram.h"
 #include "esp_log.h"
 
-#include "magni.h"
+#include "esp_qmc5883_port.h"
 #include "neo_m8n.h"
 
 #define MAP_RENDER_TOP 30

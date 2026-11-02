@@ -1,6 +1,6 @@
 #include "satelite_info_tile.h"
 
-SemaphoreHandle_t rend_semphr, map_update_semphr;
+SemaphoreHandle_t rend_semphr, map_update_semphr, arrow_update_semphr;
 
 lv_obj_t *connection_label;
 lv_obj_t *zoom_in_btn;
@@ -15,6 +15,7 @@ lv_obj_t *zoom_out_btn;
  * +---+---+---+
  */
 struct MapTile maps[9];
+
 struct nema_rmc_data rmc;
 int cur_z = 12;
 
@@ -85,13 +86,33 @@ static void neo_m8n_listen_cb(lv_timer_t *timer)
             your_x = lon_to_x(rmc.longitude, cur_z);
             your_y = lat_to_y(rmc.latitude, cur_z);
             map_coord_update(your_x, your_y);
-            // 发信号通知重新渲染
+            // 发信号通知重新渲染地图
             xSemaphoreGive(map_update_semphr);
         }
     }
 }
 
-// 负责性能开销较大的地图加载和销毁管理工作
+// 接受磁力计信息
+static void qmc_5883_listen_cb(lv_timer_t *timer)
+{
+    esp_qmc5883_port_output();
+    // 发信号通知重新渲染指向标
+    xSemaphoreGive(arrow_update_semphr);
+}
+
+// 监听arrow_update_semphr信号，负责更新指向标方向
+static void arrow_update_task(void *arg)
+{
+    while (1)
+    {
+        if (xSemaphoreTake(arrow_update_semphr, portMAX_DELAY) == pdTRUE)
+        {
+            // 指向标更新逻辑，待写
+        }
+    }
+}
+
+// 监听map_update_semphr信号，负责性能开销较大的地图加载和销毁管理工作
 static void maps_update_task(void *arg)
 {
     int if_rerend;
@@ -203,7 +224,7 @@ static void maps_update_task(void *arg)
             //     if_rerend = 1;
             // }
 
-            // 直接更新所有的image，最方便，但是开销如何？
+            // 直接更新所有的image，最方便，但是开销有点大
             for (int i = 0; i < 9; i++)
             {
                 load_rgb565_bin_file(i, maps[i].x, maps[i].y);
@@ -218,6 +239,7 @@ static void maps_update_task(void *arg)
     }
 }
 
+// 监听rend_semphr信号，负责地图的重新渲染
 static void rerend_all_task(void *arg)
 {
     while (1)
@@ -234,15 +256,16 @@ static void rerend_all_task(void *arg)
     }
 }
 
-static void zoom_in_btn_event_handler(lv_event_t *e)
-{
-    if (cur_z < 16) cur_z += 2;
-}
+// 缩放按钮似乎按动无响应，还需调试
+// static void zoom_in_btn_event_handler(lv_event_t *e)
+// {
+//     if (cur_z < 16) cur_z += 2;
+// }
 
-static void zoom_out_btn_event_handler(lv_event_t *e)
-{
-    if (cur_z > 12) cur_z -= 2;
-}
+// static void zoom_out_btn_event_handler(lv_event_t *e)
+// {
+//     if (cur_z > 12) cur_z -= 2;
+// }
 
 void satelite_info_init()
 {
@@ -257,11 +280,18 @@ void satelite_info_init()
         maps[i].map_dsc.data_size = 256 * 256 * 2;
         maps[i].map_dsc.data = maps[i].map_data;
     }
+    // 创建二值信号量
     rend_semphr = xSemaphoreCreateBinary();
     map_update_semphr = xSemaphoreCreateBinary();
+    arrow_update_semphr = xSemaphoreCreateBinary();
+    // 创建监听任务
     xTaskCreatePinnedToCore(maps_update_task, "maps_update_task", 4096, NULL, 2, NULL, 1);
     xTaskCreatePinnedToCore(rerend_all_task, "rerend_all_task", 4096, NULL, 1, NULL, 0);
+    xTaskCreatePinnedToCore(arrow_update_task, "arrow_update_task", 4096, NULL, 1, NULL, 0);
+    // 每1000ms接收一次定位模块的信息
     lv_timer_create(neo_m8n_listen_cb, 1000, NULL);
+    // 每200ms接收一次磁力计的信息
+    lv_timer_create(qmc_5883_listen_cb, 200, NULL);
 }
 
 void satelite_info_tile_init(lv_obj_t *parent)
@@ -288,7 +318,7 @@ void satelite_info_tile_init(lv_obj_t *parent)
     lv_label_set_text(label, "+");
     lv_obj_center(label);
     lv_obj_align(zoom_in_btn, LV_ALIGN_BOTTOM_RIGHT, -5, -60);
-    lv_obj_add_event_cb(zoom_in_btn, zoom_in_btn_event_handler, LV_EVENT_CLICKED, NULL);
+    // lv_obj_add_event_cb(zoom_in_btn, zoom_in_btn_event_handler, LV_EVENT_CLICKED, NULL);
     // 缩小按钮
     lv_obj_set_size(zoom_out_btn, 50, 50);
     lv_obj_add_flag(zoom_out_btn, LV_OBJ_FLAG_FLOATING);
@@ -296,7 +326,7 @@ void satelite_info_tile_init(lv_obj_t *parent)
     lv_label_set_text(label, "-");
     lv_obj_center(label);
     lv_obj_align(zoom_out_btn, LV_ALIGN_BOTTOM_RIGHT, -5, -5);
-    lv_obj_add_event_cb(zoom_out_btn, zoom_out_btn_event_handler, LV_EVENT_CLICKED, NULL);
+    // lv_obj_add_event_cb(zoom_out_btn, zoom_out_btn_event_handler, LV_EVENT_CLICKED, NULL);
 
     // 设置一些内容的初始化
     satelite_info_init();
