@@ -95,15 +95,15 @@ void fill_empty(char *line)
     strcpy(line, new_line);   // new_line 已保证以 '\0' 结尾且长度 < NEO_LINE_MAX
 }
 
-int lon_to_x(double lon, int z)
+double lon_to_x(double lon, int z)
 {
-    return (int)((lon + 180.0) / 360.0 * pow(2, 1.0 * z));
+    return ((lon + 180.0) / 360.0 * pow(2, 1.0 * z));
 }
 
 #define PI 3.1415926535
 
-int lat_to_y(double lat, int z)
+double lat_to_y(double lat, int z)
 {
     double phi = lat * PI / 180.0;
-    return (int)((1 - asinh(tan(phi)) / PI) * pow(2, 1.0 * (z - 1)));
+    return ((1 - asinh(tan(phi)) / PI) * pow(2, 1.0 * (z - 1)));
 }
