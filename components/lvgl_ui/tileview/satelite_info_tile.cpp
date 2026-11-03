@@ -15,6 +15,8 @@ static bool map_display_ready = false;
 lv_obj_t *connection_label;
 lv_obj_t *zoom_in_btn;
 lv_obj_t *zoom_out_btn;
+lv_obj_t *lon_label;
+lv_obj_t *lat_label;
 /**
  * +---+---+---+
  * | 0 | 1 | 2 |
@@ -133,11 +135,35 @@ static void map_show_default_location(void)
     xSemaphoreGive(map_update_semphr);
 }
 
+// 浮点数经纬度转换为度分秒格式
+void lat_lon_convert(char *out, bool is_lon)
+{
+    int degrees, minutes;
+    double frac_min, seconds;
+    //
+    double l = is_lon ? rmc.longitude : rmc.latitude;
+    degrees  = (int)l;
+    frac_min = (l - degrees) * 60.0;
+    minutes  = (int)frac_min;
+    seconds  = (frac_min - minutes) * 60.0;
+    // 看能否显示得下再做调整
+    if (is_lon)
+    {
+        sprintf(out, "%d°%02d'%05.3f\"%c", degrees, minutes, seconds, rmc.ew_indicator);
+    }
+    else
+    {
+        sprintf(out, "%03d°%02d'%05.3f\"%c", degrees, minutes, seconds, rmc.ns_indicator);
+    }
+    
+}
+
 // 接受定位信息
 static void neo_m8n_listen_cb(lv_timer_t *timer)
 {
     double your_x, your_y;
     int len = neo_port_listen();
+    char lonlat_str[16];
     // 即使这次没有 RMC 报文，也不能复用上次的 A 状态。
     neo_decode(len, &rmc);
     if (len > 0)
@@ -149,6 +175,11 @@ static void neo_m8n_listen_cb(lv_timer_t *timer)
             last_fix_tick = lv_tick_get();
             default_map_shown = false;
             lv_label_set_text(connection_label, "Satellites connected :-)");
+            //
+            lat_lon_convert(lonlat_str, true);
+            lv_label_set_text(lon_label, lonlat_str);
+            lat_lon_convert(lonlat_str, false);
+            lv_label_set_text(lat_label, lonlat_str);
 
             your_x = lon_to_x(rmc.longitude, cur_z);
             your_y = lat_to_y(rmc.latitude, cur_z);
@@ -165,6 +196,8 @@ static void neo_m8n_listen_cb(lv_timer_t *timer)
     {
         has_real_fix = false;
         lv_label_set_text(connection_label, "No fix, default: Tiananmen");
+        lv_label_set_text(lon_label, "lon:null");
+        lv_label_set_text(lat_label, "lat:null");
         if (!default_map_shown)
         {
             default_map_shown = true;
@@ -309,6 +342,8 @@ void satelite_info_tile_init(lv_obj_t *parent)
     connection_label = lv_label_create(top_layer);
     zoom_in_btn = lv_btn_create(top_layer);
     zoom_out_btn = lv_btn_create(top_layer);
+    lon_label = lv_label_create(top_layer);
+    lat_label = lv_label_create(top_layer);
     for (int i = 0; i < 9; i++)
     {
         maps[i].map_obj = lv_img_create(parent);
@@ -347,6 +382,15 @@ void satelite_info_tile_init(lv_obj_t *parent)
     lv_obj_center(label);
     lv_obj_align(zoom_out_btn, LV_ALIGN_BOTTOM_RIGHT, -5, -5);
     // lv_obj_add_event_cb(zoom_out_btn, zoom_out_btn_event_handler, LV_EVENT_CLICKED, NULL);
+
+    // 两个浮动的label用于显示经纬度（转化为度分秒格式）
+    lv_obj_set_size(lon_label, 100, 25);
+    lv_obj_add_flag(lon_label, LV_OBJ_FLAG_FLOATING);
+    lv_label_set_text(lon_label, "lon:null");
+
+    lv_obj_set_size(lat_label, 100, 25);
+    lv_obj_add_flag(lat_label, LV_OBJ_FLAG_FLOATING);
+    lv_label_set_text(lat_label, "lat:null");
 
     // 设置一些内容的初始化
     satelite_info_init();
