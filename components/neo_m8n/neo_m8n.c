@@ -18,14 +18,18 @@ void fill_empty(char* line);
 
 void neo_port_init(void)
 {
-    ESP_ERROR_CHECK(uart_param_config(UART_NUM_0, &gps_uart_config));
-    ESP_ERROR_CHECK(uart_driver_install(UART_NUM_0, NEO_BUF_MAX, NEO_BUF_MAX, 0, NULL, 0));
-    ESP_LOGI(GPS_TAG, "GPS module init");
+    ESP_ERROR_CHECK(uart_param_config(NEO_UART_NUM, &gps_uart_config));
+    // 把UART1映射到GPS接线的引脚，不使用流控引脚
+    ESP_ERROR_CHECK(uart_set_pin(NEO_UART_NUM, NEO_UART_TX_PIN, NEO_UART_RX_PIN,
+                                 UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE));
+    ESP_ERROR_CHECK(uart_driver_install(NEO_UART_NUM, NEO_BUF_MAX, NEO_BUF_MAX, 0, NULL, 0));
+    ESP_LOGI(GPS_TAG, "GPS module init on UART%d (RX=GPIO%d, TX=GPIO%d)",
+             NEO_UART_NUM, NEO_UART_RX_PIN, NEO_UART_TX_PIN);
 }
 
 int neo_port_listen(void)
 {
-    return uart_read_bytes(UART_NUM_0, neo_buffer, NEO_BUF_MAX, 50);
+    return uart_read_bytes(NEO_UART_NUM, neo_buffer, NEO_BUF_MAX, 50);
 }
 
 void neo_decode(int len, struct nema_rmc_data *rmc)

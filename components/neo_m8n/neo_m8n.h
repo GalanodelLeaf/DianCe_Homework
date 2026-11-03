@@ -14,6 +14,13 @@
 #define NEO_BUF_MAX 1024
 #define NEO_LINE_MAX 256
 
+// GPS模块使用UART1（UART0被用作日志控制台，不能再和GPS共用）
+#define NEO_UART_NUM UART_NUM_1
+// 引脚按开发板实际接线：GPS的TX接GPIO44，GPS的RX接GPIO43
+// 因此ESP32-S3侧：RX = GPIO44，TX = GPIO43
+#define NEO_UART_RX_PIN GPIO_NUM_44
+#define NEO_UART_TX_PIN GPIO_NUM_43
+
 #ifdef __cplusplus
 extern "C" {
 #endif

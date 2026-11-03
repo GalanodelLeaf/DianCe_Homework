@@ -19,6 +19,14 @@ struct MapTile maps[9];
 struct nema_rmc_data rmc;
 int cur_z = 12;
 
+// 默认位置：北京天安门（接收不到有效定位信息时，以此处为中心显示地图）
+#define DEFAULT_LATITUDE 39.9087
+#define DEFAULT_LONGITUDE 116.3975
+// 是否曾经获得过有效定位
+static bool has_real_fix = false;
+// 默认位置的地图是否已经加载过（避免每秒重复读取SD卡）
+static bool default_map_shown = false;
+
 static void map_coord_update(double your_x, double your_y)
 {
     maps[4].px = 160 - 256 * (your_x - (int)your_x);
@@ -67,6 +75,16 @@ static void map_coord_update(double your_x, double your_y)
     maps[8].y = maps[4].y + 1;
 }
 
+// 以默认位置（北京天安门）为中心加载地图
+static void map_show_default_location(void)
+{
+    double your_x = lon_to_x(DEFAULT_LONGITUDE, cur_z);
+    double your_y = lat_to_y(DEFAULT_LATITUDE, cur_z);
+    map_coord_update(your_x, your_y);
+    // 发信号通知重新渲染地图
+    xSemaphoreGive(map_update_semphr);
+}
+
 // 接受定位信息
 static void neo_m8n_listen_cb(lv_timer_t *timer)
 {
@@ -75,12 +93,11 @@ static void neo_m8n_listen_cb(lv_timer_t *timer)
     if (len > 0)
     {
         neo_decode(len, &rmc);
-        if (rmc.status == 'V')
+        // 只有状态为A才认为是有效定位（解析失败时status为0，也不能当作有效定位）
+        if (rmc.status == 'A')
         {
-            lv_label_set_text(connection_label, "Connecting satellites...");
-        }
-        else
-        {
+            has_real_fix = true;
+            default_map_shown = false;
             lv_label_set_text(connection_label, "Satellites connected :-)");
 
             your_x = lon_to_x(rmc.longitude, cur_z);
@@ -88,6 +105,18 @@ static void neo_m8n_listen_cb(lv_timer_t *timer)
             map_coord_update(your_x, your_y);
             // 发信号通知重新渲染地图
             xSemaphoreGive(map_update_semphr);
+            return;
+        }
+    }
+
+    // 没有收到有效定位信息：若从未定位成功，则显示默认位置（只加载一次）
+    if (!has_real_fix)
+    {
+        lv_label_set_text(connection_label, "No fix, default: Tiananmen");
+        if (!default_map_shown)
+        {
+            default_map_shown = true;
+            map_show_default_location();
         }
     }
 }
@@ -347,6 +376,7 @@ int load_rgb565_bin_file(int n, int x, int y)
     {
         ++ i;
     }
+    fclose(map);    // 必须关闭文件，否则会耗尽SD卡挂载时设置的max_files(5)
     ESP_LOGI("SD", "Open bin file");
     return 1;
 }
