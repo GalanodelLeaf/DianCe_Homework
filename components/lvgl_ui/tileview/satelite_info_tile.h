@@ -32,8 +32,6 @@ extern "C" {
 
 void satelite_info_tile_init(lv_obj_t *parent);
 
-int load_rgb565_bin_file(int n, int x, int y);
-
 #ifdef __cplusplus
 }
 #endif

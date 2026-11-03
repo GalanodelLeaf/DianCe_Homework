@@ -27,6 +27,8 @@ extern "C" {
 
 void neo_port_init(void);
 int neo_port_listen(void);
+// status: A=本批次有效定位（十进制度），V=明确无定位，0=暂无完整有效RMC。
+// 保留跨读取批次的半条报文；len <= 0 时清除输出状态但保留半条报文。
 void neo_decode(int len, struct nema_rmc_data *rmc);
 
 // 经纬度的输入全部以角度形式

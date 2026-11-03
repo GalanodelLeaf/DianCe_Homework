@@ -1,4 +1,6 @@
 #include "neo_m8n.h"
+#include <stdbool.h>
+#include <stdlib.h>
 
 static const char *GPS_TAG = "NEO_M8N";
 
@@ -13,8 +15,8 @@ const uart_config_t gps_uart_config =
 };
 
 static char neo_buffer[NEO_BUF_MAX];
-
-void fill_empty(char* line);
+static char neo_line[NEO_LINE_MAX];
+static size_t neo_line_length;
 
 void neo_port_init(void)
 {
@@ -29,74 +31,97 @@ void neo_port_init(void)
 
 int neo_port_listen(void)
 {
-    return uart_read_bytes(NEO_UART_NUM, neo_buffer, NEO_BUF_MAX, 50);
+    // LVGL 定时器调用此函数：不等待 UART，以免拖动地图时卡顿。
+    return uart_read_bytes(NEO_UART_NUM, neo_buffer, NEO_BUF_MAX, 0);
+}
+
+// RMC 坐标为 ddmm.mmmm / dddmm.mmmm，地图投影需要带符号的十进制度。
+static bool parse_coordinate(const char *text, char hemisphere, bool latitude, double *degrees)
+{
+    char *end;
+    const double raw = strtod(text, &end);
+    if (end == text || *end != '\0' || !isfinite(raw) || raw < 0) return false;
+    const double whole_degrees = floor(raw / 100.0);
+    const double minutes = raw - whole_degrees * 100.0;
+    const double value = whole_degrees + minutes / 60.0;
+    if (minutes >= 60.0 || value > (latitude ? 90.0 : 180.0)) return false;
+    if (latitude ? (hemisphere != 'N' && hemisphere != 'S')
+                 : (hemisphere != 'E' && hemisphere != 'W')) return false;
+    *degrees = (hemisphere == 'S' || hemisphere == 'W') ? -value : value;
+    return true;
+}
+
+static bool decode_rmc_line(char *line, struct nema_rmc_data *rmc)
+{
+    // 同时接受 GNRMC、GPRMC 等 talker；其它报文不改变定位状态。
+    if (strlen(line) < 7 || line[0] != '$' || strncmp(line + 3, "RMC,", 4) != 0) return false;
+    char *checksum = strchr(line, '*');
+    if (checksum == NULL || strlen(checksum + 1) != 2) return false;
+    char *end;
+    const unsigned long expected = strtoul(checksum + 1, &end, 16);
+    if (end != checksum + 3 || expected > 0xff) return false;
+    unsigned char actual = 0;
+    for (char *p = line + 1; p < checksum; ++p) actual ^= (unsigned char)*p;
+    if (actual != expected) return false;
+    *checksum = '\0';
+
+    char *fields[13];
+    size_t count = 0;
+    char *rest = line;
+    while (count < 13 && (fields[count] = strsep(&rest, ",")) != NULL) ++count;
+    if (count < 3 || strlen(fields[2]) != 1) return false;
+    struct nema_rmc_data sample = {0};
+    sample.status = fields[2][0];
+    // 无定位时经纬度字段可以为空，仍须向上层传递 V。
+    if (sample.status == 'V') {
+        *rmc = sample;
+        return true;
+    }
+    if (sample.status != 'A' || count < 10 ||
+        strlen(fields[1]) >= sizeof(sample.utc_time) ||
+        strlen(fields[9]) >= sizeof(sample.date) ||
+        strlen(fields[4]) != 1 || strlen(fields[6]) != 1) return false;
+    sample.ns_indicator = fields[4][0];
+    sample.ew_indicator = fields[6][0];
+    if (!parse_coordinate(fields[3], sample.ns_indicator, true, &sample.latitude) ||
+        !parse_coordinate(fields[5], sample.ew_indicator, false, &sample.longitude)) return false;
+    // Web Mercator 的有效纬度范围，避免极区投影产生无穷大。
+    if (fabs(sample.latitude) > 85.05112878) return false;
+    strcpy(sample.utc_time, fields[1]);
+    strcpy(sample.date, fields[9]);
+    sample.speed_over_ground = strtod(fields[7], NULL);
+    sample.course_over_ground = strtod(fields[8], NULL);
+    if (count > 10) sample.magnetic_variation = strtod(fields[10], NULL);
+    if (count > 11) sample.mv_ew_indicator = fields[11][0];
+    *rmc = sample;
+    return true;
 }
 
 void neo_decode(int len, struct nema_rmc_data *rmc)
 {
-    char neo_line[NEO_LINE_MAX];
-
-    if (len <= 0) return;
-    if (len > NEO_BUF_MAX) len = NEO_BUF_MAX;   // 防御
-    neo_buffer[len] = '\0';                     // 需要 neo_buffer[NEO_BUF_MAX + 1]
-
-    char *rest = neo_buffer;
-    char *token;
-
-    while ((token = strsep(&rest, "\n")) != NULL) {
-        size_t tlen = strlen(token);
-        if (tlen && token[tlen - 1] == '\r') token[--tlen] = '\0';
-        if (tlen == 0 || token[0] != '$') continue;
-        if (tlen >= NEO_LINE_MAX) continue;      // 超长丢弃
-
-        memcpy(neo_line, token, tlen + 1);
-        fill_empty(neo_line);
-
-        if (strncmp(neo_line, "$GNRMC", 6) == 0)
-        {
-            int n = sscanf(neo_line,
-                "$G%*[^,],%[^,],%c,%lf,%c,%lf,%c,%lf,%lf,%[^,],%lf,%c",
-                rmc->utc_time, &rmc->status,
-                &rmc->latitude, &rmc->ns_indicator,
-                &rmc->longitude, &rmc->ew_indicator,
-                &rmc->speed_over_ground, &rmc->course_over_ground,
-                rmc->date, &rmc->magnetic_variation,
-                &rmc->mv_ew_indicator);
-            if (n != 11) {
-                memset(rmc, 0, sizeof (struct nema_rmc_data));   // 或标记无效
+    if (rmc == NULL) return;
+    // status == 0 表示本批次没有新的完整有效报文，而不是复用旧定位。
+    memset(rmc, 0, sizeof(*rmc));
+    if (len > NEO_BUF_MAX) len = NEO_BUF_MAX;
+    for (int i = 0; i < len; ++i) {
+        const char ch = neo_buffer[i];
+        if (ch == '$') {
+            neo_line_length = 0;
+            neo_line[neo_line_length++] = ch;
+        } else if (ch == '\r' || ch == '\n') {
+            if (neo_line_length > 0) {
+                neo_line[neo_line_length] = '\0';
+                decode_rmc_line(neo_line, rmc);
+                neo_line_length = 0;
+            }
+        } else if (neo_line_length > 0) {
+            if (neo_line_length < sizeof(neo_line) - 1) {
+                neo_line[neo_line_length++] = ch;
+            } else {
+                neo_line_length = 0; // 超长报文丢弃，等待下一个 $。
             }
         }
     }
-    printf("%s\n", neo_buffer);
-}
-
-// 空数据时会有连续逗号串，没法直接格式化读取，先给空数据填充0，方便格式化读取
-// new_line取得足够长，应该不用担心溢出的问题
-void fill_empty(char *line)
-{
-    char new_line[NEO_LINE_MAX];
-    char *dst = new_line;
-    char *dst_end = new_line + sizeof(new_line) - 1;
-    char *rest = line;
-    char *token;
-
-    while ((token = strsep(&rest, ",")) != NULL) {
-        size_t len = strlen(token);
-        size_t need = (len == 0 ? 1 : len) + 1;   // 字段 + 逗号
-        if (dst + need > dst_end) {               // 空间不够，放弃
-            *line = '\0';
-            return;
-        }
-        if (len == 0) {
-            *dst++ = '0';
-        } else {
-            memcpy(dst, token, len);
-            dst += len;
-        }
-        *dst++ = ',';
-    }
-    *dst = '\0';
-    strcpy(line, new_line);   // new_line 已保证以 '\0' 结尾且长度 < NEO_LINE_MAX
 }
 
 double lon_to_x(double lon, int z)

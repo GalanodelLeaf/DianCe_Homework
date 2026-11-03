@@ -1,4 +1,5 @@
 #include <stdio.h>
+#include <math.h>
 
 #include "esp_qmc5883_port.h"
 
@@ -26,11 +27,24 @@ void esp_qmc5883_port_init(i2c_master_bus_handle_t bus_handle)
     qmc5883.setDeclination(0.0f);
 }
 
-void esp_qmc5883_port_output(void)
+bool esp_qmc5883_port_read_heading(float *heading_deg)
 {
+    if (heading_deg == nullptr) {
+        return false;
+    }
+
     Polar p;
-    if (qmc5883.readPolar(p)) {
+    if (qmc5883.readPolar(p) && isfinite(p.polar)) {
+        *heading_deg = p.polar;
         printf("QMC5883P: heading=%.1f deg | X=%d Y=%d Z=%d\r\n",
                p.polar, qmc5883.getRawX(), qmc5883.getRawY(), qmc5883.getRawZ());
+        return true;
     }
+    return false;
+}
+
+void esp_qmc5883_port_output(void)
+{
+    float heading_deg;
+    esp_qmc5883_port_read_heading(&heading_deg);
 }
