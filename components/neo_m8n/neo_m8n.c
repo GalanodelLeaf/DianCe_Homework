@@ -2,6 +2,10 @@
 #include <stdbool.h>
 #include <stdlib.h>
 
+#define PI 3.1415926535
+#define A  6378245.0
+#define EE 0.00669342162296594323
+
 static const char *GPS_TAG = "NEO_M8N";
 
 const uart_config_t gps_uart_config =
@@ -51,6 +55,41 @@ static bool parse_coordinate(const char *text, char hemisphere, bool latitude, d
     return true;
 }
 
+// 国内地图增加一步从WGS84到GCJ02的转换
+
+static double transform_lat(double x, double y) { // x=lng-105, y=lat-35
+    double ret = -100.0 + 2.0*x + 3.0*y + 0.2*y*y + 0.1*x*y + 0.2*sqrt(fabs(x));
+    ret += (20.0*sin(6.0*x*PI) + 20.0*sin(2.0*x*PI)) * 2.0/3.0;
+    ret += (20.0*sin(y*PI) + 40.0*sin(y/3.0*PI)) * 2.0/3.0;
+    ret += (160.0*sin(y/12.0*PI) + 320.0*sin(y*PI/30.0)) * 2.0/3.0;
+    return ret;
+}
+
+static double transform_lng(double x, double y) {
+    double ret = 300.0 + x + 2.0*y + 0.1*x*x + 0.1*x*y + 0.1*sqrt(fabs(x));
+    ret += (20.0*sin(6.0*x*PI) + 20.0*sin(2.0*x*PI)) * 2.0/3.0;
+    ret += (20.0*sin(x*PI) + 40.0*sin(x/3.0*PI)) * 2.0/3.0;
+    ret += (150.0*sin(x/12.0*PI) + 300.0*sin(x/30.0*PI)) * 2.0/3.0;
+    return ret;
+}
+
+void wgs84_to_gcj02(double lng, double lat, double *out_lng, double *out_lat) {
+
+    double dlat = transform_lat(lng - 105.0, lat - 35.0);
+    double dlng = transform_lng(lng - 105.0, lat - 35.0);
+
+    double radlat = lat / 180.0 * PI;
+    double magic = sin(radlat);
+    magic = 1 - EE * magic * magic;
+    double sqrtmagic = sqrt(magic);
+
+    dlat = (dlat * 180.0) / ((A * (1 - EE)) / (magic * sqrtmagic) * PI);
+    dlng = (dlng * 180.0) / (A / sqrtmagic * cos(radlat) * PI);
+
+    *out_lng = lng + dlng;
+    *out_lat = lat + dlat;
+}
+
 static bool decode_rmc_line(char *line, struct nema_rmc_data *rmc)
 {
     // 同时接受 GNRMC、GPRMC 等 talker；其它报文不改变定位状态。
@@ -93,6 +132,8 @@ static bool decode_rmc_line(char *line, struct nema_rmc_data *rmc)
     sample.course_over_ground = strtod(fields[8], NULL);
     if (count > 10) sample.magnetic_variation = strtod(fields[10], NULL);
     if (count > 11) sample.mv_ew_indicator = fields[11][0];
+    // GCJ02坐标修正
+    wgs84_to_gcj02(sample.longitude, sample.latitude, &sample.longitude, &sample.latitude);
     *rmc = sample;
     return true;
 }
@@ -128,8 +169,6 @@ double lon_to_x(double lon, int z)
 {
     return ((lon + 180.0) / 360.0 * pow(2, 1.0 * z));
 }
-
-#define PI 3.1415926535
 
 double lat_to_y(double lat, int z)
 {
