@@ -19,8 +19,8 @@
 
 struct MapTile
 {
-    int x, y;               // 墨卡托投影对应的坐标，取整数
-    double px, py;          // 相对屏幕左上角的坐标
+    int x, y;               
+    double px, py;          
     lv_obj_t     *map_obj;
     uint8_t      *map_data;
     lv_img_dsc_t  map_dsc;

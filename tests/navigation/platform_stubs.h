@@ -6,6 +6,12 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
+#ifdef _MSC_VER
+#include <sys/stat.h>
+#ifndef S_ISDIR
+#define S_ISDIR(mode) (((mode) & _S_IFMT) == _S_IFDIR)
+#endif
+#endif
 
 #ifdef __cplusplus
 extern "C" {
@@ -45,8 +51,13 @@ static inline void vTaskDelay(unsigned int ticks) {}
 static inline int xTaskCreatePinnedToCore(void (*task)(void *), const char *name,
                                         unsigned int stack, void *arg, unsigned int priority,
                                         void *handle, int core) { return pdTRUE; }
-static inline bool lvgl_port_lock(uint32_t ticks) { return true; }
-static inline void lvgl_port_unlock(void) {}
+static unsigned test_lvgl_lock_depth = 0;
+static inline bool lvgl_port_lock(uint32_t ticks) {
+    assert(ticks == 0); ++test_lvgl_lock_depth; return true;
+}
+static inline void lvgl_port_unlock(void) {
+    assert(test_lvgl_lock_depth > 0); --test_lvgl_lock_depth;
+}
 bool esp_qmc5883_port_read_heading(float *heading);
 
 // MinGW lacks newlib's strsep. This shim preserves empty fields just as newlib does.
@@ -63,4 +74,5 @@ static inline char *test_strsep(char **rest, const char *delimiters)
 
 #ifdef __cplusplus
 }
+
 #endif
